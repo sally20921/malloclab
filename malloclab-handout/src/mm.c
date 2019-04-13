@@ -150,14 +150,13 @@ Start of heap +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--
 
 // End of my additional macros
 
-//pointer arithmetics that has to do with segregated_lists
-#define GET_LISTS_ELEMENT(i) (*(segregated_lists+i))
-#define SET_LISTS_ELEMENT(i, ptr) (*(segregated_lists+i) = ptr)
-
+// Define this so later when we move to store the list in heap,
+// we can just change this function
+#define GET_FREE_LIST_PTR(i) (*(free_lists+i))
+#define SET_FREE_LIST_PTR(i, ptr) (*(free_lists+i) = ptr)
 
 /*Global variables*/
 static char *heap_listp = 0; /*Pointer to first block*/
-//static char **segregated_lists = NULL;
 // Global var
 void *segregated_free_lists[LISTLIMIT];
 static char **free_lists;
@@ -202,7 +201,8 @@ static void insert_node(void *ptr, size_t size) {
     }
     
     // Keep size ascending order and search
-    search_ptr = segregated_free_lists[list];
+    //search_ptr = segregated_free_lists[list];
+    search_ptr = GET_FREE_LIST_PTR(list);
     while ((search_ptr != NULL) && (size > GET_SIZE(HDRP(search_ptr)))) {
         insert_ptr = search_ptr;
         search_ptr = PRED(search_ptr);
@@ -219,7 +219,8 @@ static void insert_node(void *ptr, size_t size) {
             SET_PTR(PRED_PTR(ptr), search_ptr);
             SET_PTR(SUCC_PTR(search_ptr), ptr);
             SET_PTR(SUCC_PTR(ptr), NULL);
-            segregated_free_lists[list] = ptr;
+            //segregated_free_lists[list] = ptr;
+            SET_FREE_LIST_PTR(list, ptr);
         }
     } else {
         if (insert_ptr != NULL) {
@@ -229,7 +230,8 @@ static void insert_node(void *ptr, size_t size) {
         } else {
             SET_PTR(PRED_PTR(ptr), NULL);
             SET_PTR(SUCC_PTR(ptr), NULL);
-            segregated_free_lists[list] = ptr;
+            //segregated_free_lists[list] = ptr;
+            SET_FREE_LIST_PTR(list, ptr);
         }
     }
     
@@ -253,13 +255,15 @@ static void delete_node(void *ptr) {
             SET_PTR(PRED_PTR(SUCC(ptr)), PRED(ptr));
         } else {
             SET_PTR(SUCC_PTR(PRED(ptr)), NULL);
-            segregated_free_lists[list] = PRED(ptr);
+            //segregated_free_lists[list] = PRED(ptr);
+            SET_FREE_LIST_PTR(list, PRED(ptr));
         }
     } else {
         if (SUCC(ptr) != NULL) {
             SET_PTR(PRED_PTR(SUCC(ptr)), NULL);
         } else {
-            segregated_free_lists[list] = NULL;
+            //segregated_free_lists[list] = NULL;
+            SET_FREE_LIST_PTR(list, PRED(ptr));
         }
     }
     
@@ -356,11 +360,19 @@ int mm_init(void)
 {
     int list;
     char *heap_start; // Pointer to beginning of heap
+
+    if ((long)(free_lists = mem_sbrk(LISTLIMIT*sizeof(char *))) == -1)
+		return -1;
     
-    // Initialize segregated free lists
-    for (list = 0; list < LISTLIMIT; list++) {
-        segregated_free_lists[list] = NULL;
+     // Initialize the free list
+    for (int i = 0; i <= LISTLIMIT; i++) {
+	    SET_FREE_LIST_PTR(i, NULL);
     }
+
+    // Initialize segregated free lists
+    /*for (list = 0; list < LISTLIMIT; list++) {
+        segregated_free_lists[list] = NULL;
+    }*/
     
     // Allocate memory for the initial empty heap
     if ((long)(heap_start = mem_sbrk(4 * WSIZE)) == -1)
@@ -404,8 +416,10 @@ void *mm_malloc(size_t size)
     size_t searchsize = asize;
     // Search for free block in segregated list
     while (list < LISTLIMIT) {
-        if ((list == LISTLIMIT - 1) || ((searchsize <= 1) && (segregated_free_lists[list] != NULL))) {
-            ptr = segregated_free_lists[list];
+        if ((list == LISTLIMIT - 1) || ((searchsize <= 1) && 
+        (/*segregated_free_lists[list]*/ GET_FREE_LIST_PTR(list)!= NULL))) {
+            //ptr = segregated_free_lists[list];
+            ptr = GET_FREE_LIST_PTR(list);
             // Ignore blocks that are too small or marked with the reallocation bit
             while ((ptr != NULL) && ((asize > GET_SIZE(HDRP(ptr))) || (GET_TAG(HDRP(ptr)))))
             {
