@@ -105,7 +105,7 @@ Start of heap +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--
 #define INITCHUNKSIZE (1<<6)
 #define CHUNKSIZE (1<<12) /*Extend heap by this amount(bytes)*/
 
-#define LISTLIMIT     20
+#define MAXNUMBER     20
 #define REALLOC_BUFFER  (1<<7)
 
 #define MAX(x,y) ((x) > (y) ? (x) : (y) )
@@ -158,15 +158,15 @@ Start of heap +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--
 /*Global variables*/
 static char *heap_listp = 0; /*Pointer to first block*/
 // Global var
-void *segregated_free_lists[LISTLIMIT];
+void *segregated_free_lists[MAXNUMBER];
 static char **free_lists;
 
 /*helper functions*/
 static void *extend_heap(size_t size);
 static void *coalesce(void *ptr);
 static void *place(void *ptr, size_t asize);
-static void insert_node(void *ptr, size_t size);
-static void delete_node(void *ptr);
+static void add(void *ptr, size_t size);
+static void delete(void *ptr);
 
 
 //////////////////////////////////////// Helper functions //////////////////////////////////////////////////////////
@@ -184,18 +184,18 @@ static void *extend_heap(size_t size)
     PUT_NOTAG(HDRP(ptr), PACK(asize, 0));
     PUT_NOTAG(FTRP(ptr), PACK(asize, 0));
     PUT_NOTAG(HDRP(NEXT_BLKP(ptr)), PACK(0, 1));
-    insert_node(ptr, asize);
+    add(ptr, asize);
     
     return coalesce(ptr);
 }
 
-static void insert_node(void *ptr, size_t size) {
+static void add(void *ptr, size_t size) {
     int list = 0;
     void *search_ptr = ptr;
     void *insert_ptr = NULL;
     
     // Select segregated list
-    while ((list < LISTLIMIT - 1) && (size > 1)) {
+    while ((list < MAXNUMBER - 1) && (size > 1)) {
         size >>= 1;
         list++;
     }
@@ -239,12 +239,12 @@ static void insert_node(void *ptr, size_t size) {
 }
 
 
-static void delete_node(void *ptr) {
+static void delete(void *ptr) {
     int list = 0;
     size_t size = GET_SIZE(HDRP(ptr));
     
     // Select segregated list
-    while ((list < LISTLIMIT - 1) && (size > 1)) {
+    while ((list < MAXNUMBER - 1) && (size > 1)) {
         size >>= 1;
         list++;
     }
@@ -286,29 +286,29 @@ static void *coalesce(void *ptr)
         return ptr;
     }
     else if (prev_alloc && !next_alloc) {                   // Case 2
-        delete_node(ptr);
-        delete_node(NEXT_BLKP(ptr));
+        delete(ptr);
+        delete(NEXT_BLKP(ptr));
         size += GET_SIZE(HDRP(NEXT_BLKP(ptr)));
         PUT(HDRP(ptr), PACK(size, 0));
         PUT(FTRP(ptr), PACK(size, 0));
     } else if (!prev_alloc && next_alloc) {                 // Case 3
-        delete_node(ptr);
-        delete_node(PREV_BLKP(ptr));
+        delete(ptr);
+        delete(PREV_BLKP(ptr));
         size += GET_SIZE(HDRP(PREV_BLKP(ptr)));
         PUT(FTRP(ptr), PACK(size, 0));
         PUT(HDRP(PREV_BLKP(ptr)), PACK(size, 0));
         ptr = PREV_BLKP(ptr);
     } else {                                                // Case 4
-        delete_node(ptr);
-        delete_node(PREV_BLKP(ptr));
-        delete_node(NEXT_BLKP(ptr));
+        delete(ptr);
+        delete(PREV_BLKP(ptr));
+        delete(NEXT_BLKP(ptr));
         size += GET_SIZE(HDRP(PREV_BLKP(ptr))) + GET_SIZE(HDRP(NEXT_BLKP(ptr)));
         PUT(HDRP(PREV_BLKP(ptr)), PACK(size, 0));
         PUT(FTRP(NEXT_BLKP(ptr)), PACK(size, 0));
         ptr = PREV_BLKP(ptr);
     }
     
-    insert_node(ptr, size);
+    add(ptr, size);
     
     return ptr;
 }
@@ -318,7 +318,7 @@ static void *place(void *ptr, size_t asize)
     size_t ptr_size = GET_SIZE(HDRP(ptr));
     size_t remainder = ptr_size - asize;
     
-    delete_node(ptr);
+    delete(ptr);
     
     
     if (remainder <= DSIZE * 2) {
@@ -333,7 +333,7 @@ static void *place(void *ptr, size_t asize)
         PUT(FTRP(ptr), PACK(remainder, 0));
         PUT_NOTAG(HDRP(NEXT_BLKP(ptr)), PACK(asize, 1));
         PUT_NOTAG(FTRP(NEXT_BLKP(ptr)), PACK(asize, 1));
-        insert_node(ptr, remainder);
+        add(ptr, remainder);
         return NEXT_BLKP(ptr);
         
     }
@@ -344,7 +344,7 @@ static void *place(void *ptr, size_t asize)
         PUT(FTRP(ptr), PACK(asize, 1));
         PUT_NOTAG(HDRP(NEXT_BLKP(ptr)), PACK(remainder, 0));
         PUT_NOTAG(FTRP(NEXT_BLKP(ptr)), PACK(remainder, 0));
-        insert_node(NEXT_BLKP(ptr), remainder);
+        add(NEXT_BLKP(ptr), remainder);
     }
     return ptr;
 }
@@ -361,27 +361,27 @@ int mm_init(void)
     int list;
     char *heap_start; // Pointer to beginning of heap
 
-    if ((long)(free_lists = mem_sbrk(LISTLIMIT*sizeof(char *))) == -1)
+    if ((long)(free_lists = mem_sbrk(MAXNUMBER*sizeof(char *))) == -1)
 		return -1;
     
      // Initialize the free list
-    for (int i = 0; i <= LISTLIMIT; i++) {
+    for (int i = 0; i <= MAXNUMBER; i++) {
 	    SET_FREE_LIST_PTR(i, NULL);
     }
 
     // Initialize segregated free lists
-    /*for (list = 0; list < LISTLIMIT; list++) {
+    /*for (list = 0; list < MAXNUMBER; list++) {
         segregated_free_lists[list] = NULL;
     }*/
     
     // Allocate memory for the initial empty heap
-    if ((long)(heap_start = mem_sbrk(4 * WSIZE)) == -1)
+    if ((long)(/*heap_start*/ heap_listp = mem_sbrk(4 * WSIZE)) == -1)
         return -1;
     
-    PUT_NOTAG(heap_start, 0);                            /* Alignment padding */
-    PUT_NOTAG(heap_start + (1 * WSIZE), PACK(DSIZE, 1)); /* Prologue header */
-    PUT_NOTAG(heap_start + (2 * WSIZE), PACK(DSIZE, 1)); /* Prologue footer */
-    PUT_NOTAG(heap_start + (3 * WSIZE), PACK(0, 1));     /* Epilogue header */
+    PUT_NOTAG(heap_listp, 0);                            /* Alignment padding */
+    PUT_NOTAG(heap_listp + (1 * WSIZE), PACK(DSIZE, 1)); /* Prologue header */
+    PUT_NOTAG(heap_listp + (2 * WSIZE), PACK(DSIZE, 1)); /* Prologue footer */
+    PUT_NOTAG(heap_listp + (3 * WSIZE), PACK(0, 1));     /* Epilogue header */
     
     if (extend_heap(INITCHUNKSIZE) == NULL)
         return -1;
@@ -415,8 +415,8 @@ void *mm_malloc(size_t size)
     int list = 0;
     size_t searchsize = asize;
     // Search for free block in segregated list
-    while (list < LISTLIMIT) {
-        if ((list == LISTLIMIT - 1) || ((searchsize <= 1) && 
+    while (list < MAXNUMBER) {
+        if ((list == MAXNUMBER - 1) || ((searchsize <= 1) && 
         (/*segregated_free_lists[list]*/ GET_FREE_LIST_PTR(list)!= NULL))) {
             //ptr = segregated_free_lists[list];
             ptr = GET_FREE_LIST_PTR(list);
@@ -463,7 +463,7 @@ void mm_free(void *ptr)
     PUT(HDRP(ptr), PACK(size, 0));
     PUT(FTRP(ptr), PACK(size, 0));
     
-    insert_node(ptr, size);
+    add(ptr, size);
     coalesce(ptr);
     
     return;
@@ -511,7 +511,7 @@ void *mm_realloc(void *ptr, size_t size)
                 remainder += extendsize;
             }
             
-            delete_node(NEXT_BLKP(ptr));
+            delete(NEXT_BLKP(ptr));
             
             // Do not split block
             PUT_NOTAG(HDRP(ptr), PACK(new_size + remainder, 1));
