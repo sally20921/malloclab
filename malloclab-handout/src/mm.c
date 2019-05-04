@@ -204,6 +204,8 @@ int mm_init(void)
     
     if (extend_heap(INITCHUNKSIZE) == NULL)
         return -1;
+
+    mm_check(1);
     
     return 0;
 }
@@ -274,6 +276,7 @@ void *mm_malloc(size_t size)
     //(place() will optionally split the block)
     bp = place(bp, asize);
     
+    mm_check(1);
     
     // return pointer to newly allocated block
     return bp;
@@ -354,6 +357,7 @@ void *mm_realloc(void *bp, size_t size)
         memcpy(new_block, bp, GET_SIZE(HDRP(bp)));
         mm_free(bp);
     }
+
     return new_block;
     
 }
@@ -563,6 +567,7 @@ static void *place(void *bp, size_t asize)
     return bp;
 }
 
+//this function prints information about the block for debugging 
 static void printblock(void *bp) 
 {
     size_t hsize, halloc, fsize, falloc;
@@ -578,11 +583,12 @@ static void printblock(void *bp)
 	return;
     }
 
-    printf("%p: header: [%p:%c] footer: [%p:%c]\n", bp, 
+    printf("%p: header: [%d:%c] footer: [%d:%c]\n", bp, 
 	hsize, (halloc ? 'a' : 'f'), 
 	fsize, (falloc ? 'a' : 'f')); 
 }
 
+//check if block is doubleword aligned and header match the footer
 static void checkblock(void *bp) 
 {
     if ((size_t)bp % 8)
@@ -591,7 +597,7 @@ static void checkblock(void *bp)
 	printf("Error: header does not match footer\n");
 }
 
-
+//minimal check of the heap for consistency
 void mm_check(int verbose){
     char *bp = heap_listp;
 
